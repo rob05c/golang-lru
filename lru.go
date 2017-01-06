@@ -23,7 +23,13 @@ func New(size int) (*Cache, error) {
 // NewWithEvict constructs a fixed size cache with the given eviction
 // callback.
 func NewWithEvict(size int, onEvicted func(key interface{}, value interface{})) (*Cache, error) {
-	lru, err := simplelru.NewLRU(size, simplelru.EvictCallback(onEvicted))
+	return NewLargeWithEvict(uint64(size), onEvicted)
+}
+
+// NewLargeWithEvict constructs a fixed size cache with the given eviction
+// callback.
+func NewLargeWithEvict(size uint64, onEvicted func(key interface{}, value interface{})) (*Cache, error) {
+	lru, err := simplelru.NewLRULarge(size, simplelru.EvictCallback(onEvicted))
 	if err != nil {
 		return nil, err
 	}
@@ -42,9 +48,14 @@ func (c *Cache) Purge() {
 
 // Add adds a value to the cache.  Returns true if an eviction occurred.
 func (c *Cache) Add(key, value interface{}) bool {
+	return c.AddSize(key, value, 1)
+}
+
+// AddSize adds a value to the cache.  Returns true if an eviction occurred.
+func (c *Cache) AddSize(key, value interface{}, size uint64) bool {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	return c.lru.Add(key, value)
+	return c.lru.AddSize(key, value, size)
 }
 
 // Get looks up a key's value from the cache.
@@ -74,13 +85,20 @@ func (c *Cache) Peek(key interface{}) (interface{}, bool) {
 // recent-ness or deleting it for being stale,  and if not, adds the value.
 // Returns whether found and whether an eviction occurred.
 func (c *Cache) ContainsOrAdd(key, value interface{}) (ok, evict bool) {
+	return c.ContainsOrAddSize(key, value, 1)
+}
+
+// ContainsOrAddSize checks if a key is in the cache  without updating the
+// recent-ness or deleting it for being stale,  and if not, adds the value.
+// Returns whether found and whether an eviction occurred.
+func (c *Cache) ContainsOrAddSize(key, value interface{}, size uint64) (ok, evict bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	if c.lru.Contains(key) {
 		return true, false
 	} else {
-		evict := c.lru.Add(key, value)
+		evict := c.lru.AddSize(key, value, size)
 		return false, evict
 	}
 }
@@ -111,4 +129,11 @@ func (c *Cache) Len() int {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.lru.Len()
+}
+
+// Size return the size of the cache.
+func (c *Cache) Size() uint64 {
+        c.lock.RLock()
+        defer c.lock.RUnlock()
+        return c.lru.Size()
 }
